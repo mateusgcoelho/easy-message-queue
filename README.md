@@ -1,4 +1,4 @@
-# Easy Message Queue
+# Easy Message Queue - In development
 
 A simple message broker designed for small projects and quick experiments.  
 Easy Message Queue lets you quickly test ideas involving asynchronous tasks without the overhead of a full-fledged messaging system.
