@@ -11,10 +11,16 @@ import (
 
 type easyServer struct {
 	db *badger.DB
+
+	connTopics    map[net.Conn]map[string]struct{}
+	topicChannels map[string]chan []byte
 }
 
 func NewServer() *easyServer {
-	return &easyServer{}
+	return &easyServer{
+		connTopics:    make(map[net.Conn]map[string]struct{}),
+		topicChannels: make(map[string]chan []byte),
+	}
 }
 
 func (s *easyServer) Start(addr string) error {
@@ -53,7 +59,7 @@ func (s *easyServer) startListener(addr string) error {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("failed to accept connection: %v", err)
+			log.Printf("failed to accept connection.")
 			continue
 		}
 
@@ -66,11 +72,11 @@ func (s *easyServer) handleConnection(conn net.Conn) {
 	for {
 		packet, err := easyproto.ReadPacket(conn)
 		if err != nil {
-			log.Printf("failed to read packet: %v", err)
+			log.Println("failed to read packet")
 			return
 		}
 
-		log.Printf("received packet: %+v", packet)
+		log.Printf("received packet: %+v", packet.ID)
 		if packet.Type == easyproto.PacketType_Publish {
 			topic := string(packet.Headers["topic"])
 
@@ -79,12 +85,62 @@ func (s *easyServer) handleConnection(conn net.Conn) {
 			}
 			continue
 		}
+
+		if packet.Type == easyproto.PacketType_Subscribe {
+			topic := string(packet.Headers["topic"])
+
+			if err := s.handleSubscribe(conn, topic); err != nil {
+				log.Printf("failed to handle subscribe: %v", err)
+			}
+			continue
+		}
 	}
 }
 
 func (s *easyServer) handlePublish(packetId, topic string, payload []byte) error {
 	key := fmt.Sprintf("%s|%s", topic, packetId)
-	return s.db.Update(func(txn *badger.Txn) error {
+	err := s.db.Update(func(txn *badger.Txn) error {
 		return txn.Set([]byte(key), payload)
 	})
+	if err != nil {
+		return err
+	}
+
+	if ch, ok := s.topicChannels[topic]; ok {
+		ch <- payload
+	}
+
+	return nil
+}
+
+func (s *easyServer) handleSubscribe(conn net.Conn, topic string) error {
+	if _, ok := s.connTopics[conn]; !ok {
+		s.connTopics[conn] = make(map[string]struct{})
+	}
+	s.connTopics[conn][topic] = struct{}{}
+
+	if _, ok := s.topicChannels[topic]; !ok {
+		s.topicChannels[topic] = make(chan []byte, 100)
+		go s.startTopicWorker(topic, s.topicChannels[topic])
+	}
+
+	return nil
+}
+
+func (s *easyServer) startTopicWorker(topic string, ch chan []byte) {
+	log.Printf("started topic worker for topic: %s", topic)
+
+	for msg := range ch {
+		for conn := range s.connTopics {
+			if _, ok := s.connTopics[conn][topic]; !ok {
+				continue
+			}
+
+			log.Printf("sending message to %s on topic %s", conn.RemoteAddr().String(), topic)
+			packet := easyproto.NewPublishPacket(topic, msg)
+			if err := packet.Write(conn); err != nil {
+				log.Printf("failed to send message to %s: %v", conn.RemoteAddr().String(), err)
+			}
+		}
+	}
 }

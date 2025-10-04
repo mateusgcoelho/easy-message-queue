@@ -8,4 +8,8 @@ export class EasyMqService {
   publishJson(topic: string, data: any) {
     this.client.publishJson(topic, data);
   }
+
+  subscribe(topic: string, handler: (payload: any) => void) {
+    this.client.subscribe(topic, handler);
+  }
 }
