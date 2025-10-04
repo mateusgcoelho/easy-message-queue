@@ -84,6 +84,10 @@ export class EasyMqClient {
 
     this.#client.write(packet.serialize());
 
+    if (EasyMqClient.handlers[topic]) {
+      return;
+    }
+
     EasyMqClient.handlers[topic] = handler;
   }
 }
