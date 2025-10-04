@@ -22,3 +22,49 @@ This setup allows you to easily integrate asynchronous messaging into your appli
 - Testing asynchronous workflows
 - Simple task queues for small projects
 - Experimenting with event-driven ideas
+
+## Sample code (proposal)
+
+```typescript
+import { EasyMqModule } from "@easy-mq/nestjs";
+import { Module } from "@nestjs/common";
+import { AppService } from "./app.service";
+
+@Module({
+  imports: [
+    EasyMqModule.forRoot({
+      port: 8080,
+    }),
+  ],
+  controllers: [],
+  providers: [AppService],
+})
+export class AppModule {}
+```
+
+```typescript
+import { EasyMqService } from "@easy-mq/nestjs";
+import { Injectable } from "@nestjs/common";
+
+@Injectable()
+export class AppService {
+  constructor(private readonly easyMqService: EasyMqService) {
+    this.sendTestMessage();
+    setInterval(() => this.sendTestMessage(), 5000);
+
+    this.handleTestMessage();
+  }
+
+  sendTestMessage() {
+    this.easyMqService.publishJson("test-topic", {
+      message: "Hello, Easy MQ!22 : " + new Date().toISOString(),
+    });
+  }
+
+  handleTestMessage() {
+    this.easyMqService.subscribe("test-topic", (message) => {
+      console.log("Received message on test-topic:", message);
+    });
+  }
+}
+```
